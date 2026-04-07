@@ -1,0 +1,44 @@
+[project]
+name = "infra-optimizer"
+version = "0.1.0"
+description = "Pipeline modulaire d'optimisation d'infrastructure pour PME — Test Devoteam"
+authors = [{ name = "Hadi Hijazi" }]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=0.2.0",
+    "mistralai>=1.2.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.4.0",
+    "typer>=0.12.0",
+    "rich>=13.7.0",
+    "loguru>=0.7.2",
+    "numpy>=1.26.0",
+    "pandas>=2.2.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.5.0",
+]
+
+[project.scripts]
+optimizer = "infra_optimizer.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/infra_optimizer"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
