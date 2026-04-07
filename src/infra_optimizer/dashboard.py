@@ -129,28 +129,45 @@ if page == "Analyse":
         "et génère des recommandations actionnables via **Mistral**."
     )
 
-    col1, col2 = st.columns([2, 1])
-    with col1:
+    # Source selection via radio — plus stable que des boutons séparés
+    source_mode = st.radio(
+        "Source des données",
+        ["Dataset fourni (data/infrastructure_metrics.json)", "Uploader un fichier"],
+        horizontal=True,
+    )
+
+    uploaded = None
+    if source_mode == "Uploader un fichier":
         uploaded = st.file_uploader(
             "Fichier JSON de métriques",
             type=["json"],
             help="Format : liste de snapshots (cf. `data/infrastructure_metrics.json`)",
         )
+        ready = uploaded is not None
+    else:
+        sample_path = Path("data/infrastructure_metrics.json")
+        if sample_path.exists():
+            st.success(f"✓ Dataset trouvé : {sample_path} ({sample_path.stat().st_size // 1024} KB)")
+            ready = True
+        else:
+            st.error(f"✗ Dataset introuvable : {sample_path}")
+            ready = False
 
-    with col2:
-        st.markdown("**Ou utiliser le dataset fourni :**")
-        use_sample = st.button("📊 data/infrastructure_metrics.json", use_container_width=True)
-
-    run_clicked = st.button("▶️ Lancer l'analyse", type="primary", disabled=not (uploaded or use_sample))
+    run_clicked = st.button(
+        "▶️ Lancer l'analyse", type="primary", disabled=not ready, use_container_width=True
+    )
 
     if run_clicked:
         with st.spinner("Pipeline en cours — ingestion, détection, LLM..."):
-            if use_sample:
-                report = run_pipeline("data/infrastructure_metrics.json")
-            else:
+            if uploaded is not None:
                 report = _run_pipeline_on_file(uploaded)
+            else:
+                report = run_pipeline("data/infrastructure_metrics.json")
         st.session_state["last_report"] = report
-        st.success(f"✓ Pipeline terminé — {len(report.anomalies)} anomalies, {len(report.recommendations)} recommandations")
+        st.success(
+            f"✓ Pipeline terminé — {len(report.anomalies)} anomalies, "
+            f"{len(report.recommendations)} recommandations"
+        )
 
     # Affichage du rapport
     if "last_report" in st.session_state:
@@ -179,7 +196,7 @@ if page == "Analyse":
             color = "normal" if pct > 95 else "inverse"
             uptime_cols[i].metric(svc.replace("_", " ").title(), f"{pct}%", delta_color=color)
 
-        # Heatmap anomalies par métrique × sévérité
+        # Heatmap anomalies par métrique × sévérité (rendu Streamlit natif, pas de matplotlib)
         st.subheader("🔥 Heatmap des anomalies")
         df_anom = _anomalies_to_dataframe(report)
         if not df_anom.empty:
@@ -190,12 +207,23 @@ if page == "Analyse":
                 aggfunc="count",
                 fill_value=0,
             )
-            # Réordonner les colonnes par sévérité
             col_order = [s for s in ["critical", "high", "medium", "low"] if s in pivot.columns]
             pivot = pivot[col_order]
+            # Utilise column_config avec ProgressColumn pour une heatmap visuelle sans matplotlib
+            max_val = int(pivot.to_numpy().max()) if pivot.size > 0 else 1
+            column_config = {
+                col: st.column_config.ProgressColumn(
+                    col.upper(),
+                    format="%d",
+                    min_value=0,
+                    max_value=max_val,
+                )
+                for col in pivot.columns
+            }
             st.dataframe(
-                pivot.style.background_gradient(cmap="Reds", axis=None),
+                pivot,
                 use_container_width=True,
+                column_config=column_config,
             )
         else:
             st.info("Aucune anomalie détectée.")
