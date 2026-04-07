@@ -1,14 +1,18 @@
 """CLI Typer — point d'entrée de l'application."""
 
-import json
+import subprocess
 import sys
 from pathlib import Path
 
 import typer
 from loguru import logger
-from rich.console import Console
+from rich.align import Align
+from rich.console import Console, Group
 from rich.panel import Panel
+from rich.prompt import Prompt
+from rich.rule import Rule
 from rich.table import Table
+from rich.text import Text
 
 from infra_optimizer.comparison import Direction, compare_reports
 from infra_optimizer.config import settings
@@ -19,8 +23,128 @@ app = typer.Typer(
     name="optimizer",
     help="Pipeline modulaire d'optimisation d'infrastructure pour PME",
     add_completion=False,
+    invoke_without_command=True,
+    no_args_is_help=False,
 )
 console = Console()
+
+
+BANNER = r"""
+ ___        __              ___        _   _           _
+|_ _|_ __  / _|_ __ __ _   / _ \ _ __ | |_(_)_ __ ___ (_)_______ _ __
+ | || '_ \| |_| '__/ _` | | | | | '_ \| __| | '_ ` _ \| |_  / _ \ '__|
+ | || | | |  _| | | (_| | | |_| | |_) | |_| | | | | | | |/ /  __/ |
+|___|_| |_|_| |_|  \__,_|  \___/| .__/ \__|_|_| |_| |_|_/___\___|_|
+                                |_|
+"""
+
+
+def _print_banner():
+    """Affiche la bannière et le sous-titre."""
+    banner_text = Text(BANNER, style="bold cyan")
+    subtitle = Text(
+        "Pipeline modulaire LangGraph + Mistral — Test Devoteam",
+        style="dim italic",
+        justify="center",
+    )
+    console.print(Align.center(banner_text))
+    console.print(Align.center(subtitle))
+    console.print()
+
+
+def _print_menu():
+    """Affiche le menu principal avec les commandes disponibles."""
+    _print_banner()
+
+    table = Table(
+        show_header=True,
+        header_style="bold magenta",
+        border_style="cyan",
+        title="[bold]Commandes disponibles[/bold]",
+        title_style="bold white",
+        expand=False,
+    )
+    table.add_column("#", style="dim", width=3, justify="right")
+    table.add_column("Commande", style="bold cyan", width=14)
+    table.add_column("Description", style="white")
+    table.add_column("Exemple", style="dim italic")
+
+    rows = [
+        (
+            "1",
+            "analyze",
+            "Analyser un fichier de métriques\n[dim]ingestion → stats → détection → recommandations[/dim]",
+            "optimizer analyze data/infrastructure_metrics.json",
+        ),
+        (
+            "2",
+            "compare",
+            "Comparer deux rapports période vs période\n[dim]headline + deltas métriques + services + sévérité[/dim]",
+            "optimizer compare reports/sem1.json reports/sem2.json",
+        ),
+        (
+            "3",
+            "graph",
+            "Afficher le diagramme Mermaid du pipeline\n[dim]visualisation des 7 nœuds LangGraph[/dim]",
+            "optimizer graph",
+        ),
+        (
+            "4",
+            "dashboard",
+            "Lancer le dashboard web Streamlit\n[dim]interface visuelle : upload, analyse, comparaison[/dim]",
+            "optimizer dashboard",
+        ),
+        (
+            "5",
+            "menu",
+            "Ouvrir ce menu interactif\n[dim]navigation par numéro[/dim]",
+            "optimizer menu",
+        ),
+    ]
+    for row in rows:
+        table.add_row(*row)
+
+    console.print(Align.center(table))
+    console.print()
+
+    # Status panel
+    has_key = bool(settings.mistral_api_key)
+    key_status = (
+        "[green]✓ Configurée[/green]"
+        if has_key
+        else "[red]✗ Manquante — mode dégradé[/red]"
+    )
+    model_status = settings.mistral_model if has_key else "n/a"
+    data_exists = Path("data/infrastructure_metrics.json").exists()
+    data_status = (
+        "[green]✓ 500 snapshots disponibles[/green]"
+        if data_exists
+        else "[red]✗ data/infrastructure_metrics.json introuvable[/red]"
+    )
+
+    status_lines = [
+        f"[dim]Clé Mistral    [/dim] {key_status}",
+        f"[dim]Modèle         [/dim] {model_status}",
+        f"[dim]Dataset        [/dim] {data_status}",
+        f"[dim]Architecture   [/dim] 7 nœuds LangGraph (5 déterministes, 2 LLM)",
+    ]
+    status = Panel(
+        "\n".join(status_lines),
+        title="[bold]État du système[/bold]",
+        border_style="cyan",
+        expand=False,
+    )
+    console.print(Align.center(status))
+    console.print()
+
+    console.print(
+        Align.center(
+            Text(
+                "Astuce : tapez `optimizer <commande> --help` pour plus de détails",
+                style="dim italic",
+            )
+        )
+    )
 
 
 def _setup_logging(verbose: bool):
@@ -227,6 +351,80 @@ def compare(
                 f"[{color}]{s.delta:+d}[/{color}]",
             )
         console.print(sev_table)
+
+
+@app.command()
+def dashboard(
+    port: int = typer.Option(8501, "--port", "-p", help="Port du serveur Streamlit"),
+):
+    """Lance le dashboard web Streamlit."""
+    console.print(
+        Panel.fit(
+            f"[bold cyan]Lancement du dashboard[/bold cyan]\n\n"
+            f"URL locale : [link]http://localhost:{port}[/link]\n"
+            f"Ctrl+C pour arrêter",
+            border_style="cyan",
+        )
+    )
+    dashboard_path = Path(__file__).parent / "dashboard.py"
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "streamlit",
+            "run",
+            str(dashboard_path),
+            "--server.port",
+            str(port),
+        ]
+    )
+
+
+@app.command()
+def menu():
+    """Menu interactif — navigation par numéro."""
+    while True:
+        console.clear()
+        _print_menu()
+        console.print()
+        choice = Prompt.ask(
+            "[bold cyan]Choix[/bold cyan]",
+            choices=["1", "2", "3", "4", "q"],
+            default="q",
+            show_choices=False,
+            show_default=False,
+        )
+        console.print()
+
+        if choice == "q":
+            console.print("[dim]Au revoir.[/dim]")
+            break
+        elif choice == "1":
+            source = Prompt.ask(
+                "Chemin du fichier JSON",
+                default="data/infrastructure_metrics.json",
+            )
+            output = Prompt.ask("Chemin du rapport", default="reports/output.json")
+            analyze(Path(source), Path(output), verbose=False)
+            Prompt.ask("\n[dim]Appuyez sur Entrée pour revenir au menu[/dim]", default="")
+        elif choice == "2":
+            before = Prompt.ask("Rapport avant", default="reports/week1.json")
+            after = Prompt.ask("Rapport après", default="reports/week2.json")
+            compare(Path(before), Path(after))
+            Prompt.ask("\n[dim]Appuyez sur Entrée pour revenir au menu[/dim]", default="")
+        elif choice == "3":
+            graph()
+            Prompt.ask("\n[dim]Appuyez sur Entrée pour revenir au menu[/dim]", default="")
+        elif choice == "4":
+            dashboard(port=8501)
+            break
+
+
+@app.callback()
+def main(ctx: typer.Context):
+    """Pipeline modulaire d'optimisation d'infrastructure pour PME."""
+    if ctx.invoked_subcommand is None:
+        _print_menu()
 
 
 if __name__ == "__main__":
