@@ -32,10 +32,16 @@ Test technique Devoteam : développer une application modulaire qui résout une 
 **Persona :** Jean, CTO d'une PME française.
 **Besoin :** Comprendre l'état de santé de son infrastructure et recevoir des recommandations actionnables sans avoir à analyser manuellement des milliers de points de données.
 
-**Le pipeline répond à 3 questions :**
+**Le pipeline répond à 4 questions :**
 1. Que s'est-il passé sur mon infrastructure ces 10 derniers jours ?
 2. Qu'est-ce qui ne va pas et à quel point ?
-3. Que dois-je faire en premier ?
+3. Est-ce que ça se dégrade progressivement ? (détection de tendances)
+4. Est-ce qu'on va mieux ou moins bien que la semaine dernière ? (mode comparaison)
+5. Que dois-je faire en premier ? (recommandations LLM)
+
+**Deux interfaces :**
+- **CLI** — pour exécution rapide, CI/CD, scripts
+- **Dashboard Streamlit** — pour Jean (upload, analyse en 1 clic, visualisation)
 
 ---
 
@@ -95,18 +101,20 @@ flowchart LR
     A[ingestion] --> B[normalization]
     B --> C[anomaly_detection]
     C --> D[service_status]
-    D --> E[recommendation]
+    D --> T[trend_detection]
+    T --> E[recommendation]
     E --> F[report]
 
     C -.->|stats + seuils| C1((determinist))
     D -.->|service status| D1((determinist))
-    E -.->|recommendations| E1((Mistral))
-    F -.->|exec summary| F1((Mistral))
+    T -.->|régression linéaire| T1((determinist))
+    E -.->|recommandations| E1((Mistral))
+    F -.->|synthèse exec| F1((Mistral))
 ```
 
 Pipeline orchestré par **LangGraph**, état partagé typé via **Pydantic**.
 
-### Les 6 nœuds
+### Les 7 nœuds
 
 | # | Nœud | Type | Rôle |
 |---|---|---|---|
@@ -114,8 +122,9 @@ Pipeline orchestré par **LangGraph**, état partagé typé via **Pydantic**.
 | 2 | `normalization` | Déterministe | Calcule stats descriptives (moy, médiane, p95, p99, écart-type) par métrique + uptime services |
 | 3 | `anomaly_detection` | Déterministe | Détecte anomalies par seuils absolus + z-score statistique |
 | 4 | `service_status` | Déterministe | Identifie les services degraded/offline et compte les incidents |
-| 5 | `recommendation` | LLM (Mistral) | Génère des recommandations actionnables ancrées dans les anomalies |
-| 6 | `report` | LLM (Mistral) | Rédige une synthèse exécutive en français pour le CTO |
+| 5 | `trend_detection` | Déterministe | Détecte les dégradations progressives via régression linéaire sur fenêtre glissante |
+| 6 | `recommendation` | LLM (Mistral) | Génère des recommandations actionnables ancrées dans les anomalies |
+| 7 | `report` | LLM (Mistral) | Rédige une synthèse exécutive en français pour le CTO |
 
 ### Hybridation déterministe + LLM
 
@@ -224,6 +233,34 @@ uv run optimizer graph
 ```
 
 Sortie : diagramme Mermaid du graphe LangGraph compilé.
+
+### Comparer deux rapports (mode période vs période)
+
+```bash
+uv run optimizer compare reports/semaine1.json reports/semaine2.json
+```
+
+Répond à la question qu'un CTO pose vraiment : *"Est-ce qu'on va mieux ou moins bien que la semaine dernière ?"*
+
+Affiche :
+- Headline automatique (amélioration / dégradation / stable)
+- Évolution de chaque métrique (moy, p95, Δ%)
+- Évolution de l'uptime par service
+- Évolution des anomalies par sévérité
+
+### Lancer le dashboard web
+
+```bash
+uv run streamlit run src/infra_optimizer/dashboard.py
+```
+
+Interface visuelle pour Jean :
+- Upload d'un fichier JSON ou sélection du dataset fourni
+- Exécution du pipeline en un clic avec spinner
+- Synthèse exécutive, heatmap d'anomalies, KPIs, stats par métrique
+- Recommandations détaillées en accordéons
+- Téléchargement du rapport JSON
+- **Mode Comparaison** intégré pour diff entre rapports sauvegardés
 
 ### Lancer les tests
 

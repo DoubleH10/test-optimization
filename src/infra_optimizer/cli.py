@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from infra_optimizer.comparison import Direction, compare_reports
 from infra_optimizer.config import settings
 from infra_optimizer.graph import run_pipeline
 from infra_optimizer.models import Severity
@@ -133,6 +134,99 @@ def graph():
     mermaid = pipeline.get_graph().draw_mermaid()
     console.print("[bold]Diagramme Mermaid du pipeline :[/bold]\n")
     console.print(mermaid)
+
+
+DIRECTION_EMOJI = {
+    Direction.IMPROVED: "✅",
+    Direction.DEGRADED: "⚠️ ",
+    Direction.STABLE: "➡️ ",
+}
+DIRECTION_COLOR = {
+    Direction.IMPROVED: "green",
+    Direction.DEGRADED: "red",
+    Direction.STABLE: "yellow",
+}
+
+
+@app.command()
+def compare(
+    before: Path = typer.Argument(..., help="Rapport JSON de la période précédente"),
+    after: Path = typer.Argument(..., help="Rapport JSON de la période actuelle"),
+):
+    """Compare deux rapports et produit un diff structuré."""
+    if not before.exists() or not after.exists():
+        console.print(f"[red]✗[/red] Un des rapports est introuvable")
+        raise typer.Exit(code=1)
+
+    result = compare_reports(before, after)
+
+    console.print()
+    console.print(
+        Panel(
+            f"[bold]{result.headline}[/bold]\n\n"
+            f"Période avant : {result.before_period}\n"
+            f"Période après : {result.after_period}\n"
+            f"Anomalies : {result.total_anomalies_before} → {result.total_anomalies_after}",
+            title="[bold]Comparaison de rapports[/bold]",
+            border_style="cyan",
+        )
+    )
+
+    # Tableau métriques
+    metric_table = Table(title="Évolution des métriques", show_header=True, header_style="bold")
+    metric_table.add_column("Métrique")
+    metric_table.add_column("Moy. avant", justify="right")
+    metric_table.add_column("Moy. après", justify="right")
+    metric_table.add_column("p95 après", justify="right")
+    metric_table.add_column("Δ %", justify="right")
+    metric_table.add_column("Direction")
+    for m in result.metric_deltas[:10]:
+        color = DIRECTION_COLOR[m.direction]
+        metric_table.add_row(
+            m.metric,
+            f"{m.before_mean:.1f}",
+            f"{m.after_mean:.1f}",
+            f"{m.after_p95:.1f}",
+            f"[{color}]{m.delta_pct:+.1f}%[/{color}]",
+            f"{DIRECTION_EMOJI[m.direction]} [{color}]{m.direction.value}[/{color}]",
+        )
+    console.print(metric_table)
+
+    # Tableau services
+    if result.service_deltas:
+        svc_table = Table(title="Évolution de l'uptime services", show_header=True, header_style="bold")
+        svc_table.add_column("Service")
+        svc_table.add_column("Avant", justify="right")
+        svc_table.add_column("Après", justify="right")
+        svc_table.add_column("Δ pp", justify="right")
+        svc_table.add_column("Direction")
+        for s in result.service_deltas:
+            color = DIRECTION_COLOR[s.direction]
+            svc_table.add_row(
+                s.service,
+                f"{s.before_uptime}%",
+                f"{s.after_uptime}%",
+                f"[{color}]{s.delta_pp:+.2f}[/{color}]",
+                f"{DIRECTION_EMOJI[s.direction]} [{color}]{s.direction.value}[/{color}]",
+            )
+        console.print(svc_table)
+
+    # Tableau sévérité
+    if result.severity_deltas:
+        sev_table = Table(title="Évolution des anomalies par sévérité", show_header=True, header_style="bold")
+        sev_table.add_column("Sévérité")
+        sev_table.add_column("Avant", justify="right")
+        sev_table.add_column("Après", justify="right")
+        sev_table.add_column("Δ", justify="right")
+        for s in result.severity_deltas:
+            color = DIRECTION_COLOR[s.direction]
+            sev_table.add_row(
+                f"[{SEVERITY_COLORS[s.severity]}]{s.severity.value.upper()}[/{SEVERITY_COLORS[s.severity]}]",
+                str(s.before_count),
+                str(s.after_count),
+                f"[{color}]{s.delta:+d}[/{color}]",
+            )
+        console.print(sev_table)
 
 
 if __name__ == "__main__":

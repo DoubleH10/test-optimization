@@ -21,6 +21,7 @@ from infra_optimizer.nodes.normalization import normalization_node
 from infra_optimizer.nodes.recommendation import recommendation_node
 from infra_optimizer.nodes.report import build_report, report_node
 from infra_optimizer.nodes.service_status import service_status_node
+from infra_optimizer.nodes.trend_detection import trend_detection_node
 
 
 def build_pipeline(source_path: str):
@@ -31,6 +32,7 @@ def build_pipeline(source_path: str):
     graph.add_node("normalization", normalization_node)
     graph.add_node("anomaly_detection", anomaly_detection_node)
     graph.add_node("service_status", service_status_node)
+    graph.add_node("trend_detection", trend_detection_node)
     graph.add_node("recommendation", recommendation_node)
     graph.add_node("report", report_node)
 
@@ -38,7 +40,8 @@ def build_pipeline(source_path: str):
     graph.add_edge("ingestion", "normalization")
     graph.add_edge("normalization", "anomaly_detection")
     graph.add_edge("anomaly_detection", "service_status")
-    graph.add_edge("service_status", "recommendation")
+    graph.add_edge("service_status", "trend_detection")
+    graph.add_edge("trend_detection", "recommendation")
     graph.add_edge("recommendation", "report")
     graph.add_edge("report", END)
 
